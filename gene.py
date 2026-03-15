@@ -1,8 +1,6 @@
 import discord
 import requests
 import os
-import threading
-from flask import Flask
 import re
 TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
@@ -12,18 +10,7 @@ intents.message_content = True
 
 client = discord.Client(intents=intents)
 
-# -------- Flask server for uptime pings -------- #
-
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Homeless Girl bot is alive"
-
-def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
+# -------- Crypto APIs -------- #
 # -------- Crypto APIs -------- #
 
 def get_crypto_price(query):
@@ -226,8 +213,6 @@ async def on_message(message):
         reply = ai_reply(message)
         await message.reply(reply)
 
-# -------- Start both servers -------- #
-
-threading.Thread(target=run_web).start()
+# -------- Start the bot -------- #
 
 client.run(TOKEN)
