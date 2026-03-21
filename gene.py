@@ -51,7 +51,7 @@ class YTDLSource:
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         import imageio_ffmpeg
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        source = discord.FFmpegOpusAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        source = discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
         return source, data
 
     @classmethod
@@ -65,7 +65,7 @@ class YTDLSource:
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         import imageio_ffmpeg
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        source = discord.FFmpegOpusAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        source = discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
         return source, data
 
 # -------- Opus / Voice Helpers -------- #
