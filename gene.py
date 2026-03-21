@@ -51,7 +51,10 @@ class YTDLSource:
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         import imageio_ffmpeg
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        source = discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        
+        # from_probe() forces FFmpeg to transcode AAC/MP3 directly into Opus packets
+        # This completely bypasses the need for the broken libopus system library!
+        source = await discord.FFmpegOpusAudio.from_probe(filename, executable=ffmpeg_exe, **ffmpeg_options)
         return source, data
 
     @classmethod
@@ -65,62 +68,12 @@ class YTDLSource:
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         import imageio_ffmpeg
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        source = discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        
+        # Same here, fully bypass libopus!
+        source = await discord.FFmpegOpusAudio.from_probe(filename, executable=ffmpeg_exe, **ffmpeg_options)
         return source, data
 
-# -------- Opus / Voice Helpers -------- #
-
-def ensure_opus_loaded() -> bool:
-    """
-    Ensure discord.py's Opus bindings are loaded.
-    Uses shell 'find' to discover hidden libraries in Railway containers.
-    """
-    import discord.opus
-    import os
-
-    if discord.opus.is_loaded():
-        return True
-
-    # Windows Native
-    if os.name == "nt":
-        try:
-            import discord as discord_pkg
-            import struct
-            basedir = os.path.dirname(os.path.abspath(discord_pkg.__file__))
-            target = "x64" if struct.calcsize("P") * 8 > 32 else "x86"
-            discord.opus.load_opus(os.path.join(basedir, "bin", f"libopus-0.{target}.dll"))
-        except Exception:
-            pass
-        return discord.opus.is_loaded()
-
-    # Linux (Railway / Docker Native) Fast Discovery
-    import subprocess
-    try:
-        print("[VOICE] Scanning server for Opus libraries...", flush=True)
-        output = subprocess.check_output('find /nix/store /usr/lib /lib -name "libopus.so*" -type f -print -quit 2>/dev/null', shell=True).decode('utf-8')
-        for path in output.strip().split('\n'):
-            if not path: continue
-            try:
-                discord.opus.load_opus(path)
-                if discord.opus.is_loaded():
-                    print(f"[VOICE] Found and loaded Opus from: {path}", flush=True)
-                    return True
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # Basic Fallback
-    try:
-        import ctypes.util
-        discord.opus.load_opus(ctypes.util.find_library("opus") or "libopus.so.0")
-    except Exception:
-        pass
-
-    if not discord.opus.is_loaded():
-        print("[VOICE] Opus completely failed to load! Ensure libopus0 is installed.", flush=True)
-
-    return discord.opus.is_loaded()
+# (Removed the opus loader wrapper)
 
 # -------- Slash Commands for Music -------- #
 
@@ -395,3 +348,4 @@ async def on_message(message):
 # -------- Start the bot -------- #
 
 client.run(TOKEN)
+
