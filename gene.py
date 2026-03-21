@@ -4,7 +4,10 @@ import requests
 import os
 import re
 import asyncio
-import yt_dlp
+import wavelink
+from dotenv import load_dotenv
+
+load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
@@ -12,361 +15,160 @@ GROQ_KEY = os.getenv("GROQ_API_KEY")
 intents = discord.Intents.default()
 intents.message_content = True
 
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
+class MyClient(discord.Client):
+    def __init__(self, *, intents: discord.Intents):
+        super().__init__(intents=intents)
+        self.tree = app_commands.CommandTree(self)
 
-# -------- Music Source Setup -------- #
-
-ytdl_format_options = {
-    'format': 'bestaudio/best',
-    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
-    'restrictfilenames': True,
-    'noplaylist': True,
-    'nocheckcertificate': True,
-    'ignoreerrors': False,
-    'logtostderr': False,
-    'quiet': True,
-    'no_warnings': True,
-    'default_search': 'auto',
-    'source_address': '0.0.0.0'
-}
-
-ffmpeg_options = {
-    'options': '-vn',
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
-}
-
-ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
-
-class YTDLSource:
-
-    @classmethod
-    async def from_query(cls, query, *, loop=None, stream=False):
-        loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"scsearch:{query}", download=not stream))
-
-        if 'entries' in data:
-            data = data['entries'][0]
-
-        filename = data['url'] if stream else ytdl.prepare_filename(data)
-        import imageio_ffmpeg
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        
-        # Switched back to PCM audio to completely prevent silent playback bugs.
-        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options))
-        return source, data
-
-    @classmethod
-    async def from_url(cls, url, *, loop=None, stream=True):
-        loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
-
-        if 'entries' in data:
-            data = data['entries'][0]
-
-        filename = data['url'] if stream else ytdl.prepare_filename(data)
-        import imageio_ffmpeg
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        
-        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options))
-        return source, data
-
-def force_load_opus():
-    import discord.opus
-    import os
-    if discord.opus.is_loaded(): return
-    if os.name == 'nt':
+    async def setup_hook(self) -> None:
+        # Use a stable public Lavalink node. 
+        # Public nodes are great for testing and quick setups without hosting Java ourselves.
+        nodes = [
+            wavelink.Node(
+                uri="https://lavalink.lexis.host:443", 
+                password="lexishostlavalink",
+                inactive_timeout=180
+            )
+        ]
         try:
-            import discord as discord_pkg, struct
-            bd = os.path.dirname(os.path.abspath(discord_pkg.__file__))
-            discord.opus.load_opus(os.path.join(bd, 'bin', f"libopus-0.{'x64' if struct.calcsize('P')*8 > 32 else 'x86'}.dll"))
-        except: pass
-    else:
-        paths = ['libopus.so.0', '/usr/lib/x86_64-linux-gnu/libopus.so.0', '/usr/lib/aarch64-linux-gnu/libopus.so.0', '/usr/lib/libopus.so.0', '/usr/lib/x86_64-linux-gnu/libopus.so']
-        for p in paths:
-            try:
-                discord.opus.load_opus(p)
-                if discord.opus.is_loaded(): break
-            except: pass
-        if not discord.opus.is_loaded():
-            try:
-                import ctypes.util
-                discord.opus.load_opus(ctypes.util.find_library('opus'))
-            except: pass
+            await wavelink.Pool.connect(nodes=nodes, client=self)
+            print("[WAVELINK] Successfully connected to Lavalink node.", flush=True)
+        except Exception as e:
+            print(f"[WAVELINK] Connection failed: {e}", flush=True)
+
+client = MyClient(intents=intents)
+tree = client.tree
+
+# -------- Music Events -------- #
+
+@client.event
+async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
+    print(f"[WAVELINK] Node {payload.node.identifier} is ready!", flush=True)
 
 # -------- Slash Commands for Music -------- #
 
-@tree.command(name="play", description="Play a song or use 'music' for random music")
+@tree.command(name="play", description="Play a song (YouTube/SoundCloud search)")
 async def play(interaction: discord.Interaction, query: str):
     if not interaction.guild:
-        await interaction.response.send_message("❌ You must use this command in a server!")
+        await interaction.response.send_message("❌ This command must be used in a server!")
         return
 
-    TARGET_CHANNEL_ID = 1467485300791181333
-    channel = client.get_channel(TARGET_CHANNEL_ID)
-    
-    if not channel:
-        try:
-            channel = await client.fetch_channel(TARGET_CHANNEL_ID)
-        except:
-            await interaction.response.send_message("❌ Couldn't find the target streaming channel!")
-            return
-
-    voice_client = interaction.guild.voice_client
-
-    if voice_client is None:
-        voice_client = await channel.connect()
-    elif voice_client.channel != channel:
-        await voice_client.move_to(channel)
+    if not interaction.user.voice:
+        await interaction.response.send_message("❌ You need to join a voice channel first!")
+        return
 
     await interaction.response.defer()
 
-    if query.lower() == "music":
-        URL = "https://www.twitch.tv/lofigirl" # Lofi Girl Radio on Twitch (Bypasses YouTube blocks)
-        try:
-            player, data = await YTDLSource.from_url(URL, loop=client.loop, stream=True)
-            if voice_client.is_playing():
-                voice_client.stop()
-            voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
-            await interaction.followup.send("🎶 Now playing: **Random streaming music (Lofi radio)** 🎧")
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            await interaction.followup.send(f"❌ An error occurred while trying to play random music: `{e.__class__.__name__}: {str(e)}`")
-        return
-
     try:
-        player, data = await YTDLSource.from_query(query, loop=client.loop, stream=True)
-        if voice_client.is_playing():
-            voice_client.stop()
-        voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
-        await interaction.followup.send(f"🎶 Now playing: **{data.get('title', 'Unknown title')}**")
+        # Search for tracks using the Lavalink node's technology
+        # This handles filtering and avoids local IP blocks!
+        tracks: wavelink.Search = await wavelink.Playable.search(query)
+        if not tracks:
+            await interaction.followup.send(f"❌ Could not find search results for: `{query}`")
+            return
+
+        track = tracks[0]
+
+        # Join or move to the user's voice channel
+        vc: wavelink.Player = interaction.guild.voice_client 
+
+        if not vc:
+            vc = await interaction.user.voice.channel.connect(cls=wavelink.Player)
+        elif vc.channel != interaction.user.voice.channel:
+            await vc.move_to(interaction.user.voice.channel)
+
+        if vc.playing:
+            vc.queue.put(track)
+            await interaction.followup.send(f"➕ Added to queue: **{track.title}**")
+        else:
+            await vc.play(track)
+            await interaction.followup.send(f"🎶 Now playing: **{track.title}**")
+
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        await interaction.followup.send(f"❌ An error occurred: `{e.__class__.__name__}: {str(e)}`")
+        print(f"Play Error: {e}", flush=True)
+        await interaction.followup.send(f"❌ An error occurred while trying to play: `{str(e)}`")
 
-@tree.command(name="stop", description="Stop the music and leave")
+@tree.command(name="skip", description="Skip the current song")
+async def skip(interaction: discord.Interaction):
+    vc: wavelink.Player = interaction.guild.voice_client
+    if not vc or not vc.playing:
+        return await interaction.response.send_message("❌ Nothing is currently playing.")
+    
+    await vc.skip()
+    await interaction.response.send_message("⏭️ Skipped the current song!")
+
+@tree.command(name="stop", description="Stop the music and leave the channel")
 async def stop(interaction: discord.Interaction):
-    if not interaction.guild:
-        await interaction.response.send_message("❌ You must use this command in a server!")
-        return
-
-    voice_client = interaction.guild.voice_client
-    if voice_client:
-        await voice_client.disconnect()
-        await interaction.response.send_message("⏹️ Stopped the music and left the channel.")
+    vc: wavelink.Player = interaction.guild.voice_client
+    if vc:
+        await vc.disconnect()
+        await interaction.response.send_message("⏹️ Stopped the music and left the voice channel.")
     else:
         await interaction.response.send_message("❌ I'm not in a voice channel.")
 
-# -------- Crypto APIs -------- #
-# -------- Crypto APIs -------- #
+# -------- Crypto APIs (CoinGecko) -------- #
 
 def get_crypto_price(query):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-    
-    # Primary: CoinGecko (Upgraded to fetch Full Data including FDV)
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         r = requests.get(f"https://api.coingecko.com/api/v3/search?query={query}", headers=headers).json()
         if r.get("coins"):
             coin_id = r["coins"][0]["id"]
-            
-            p = requests.get(f"https://api.coingecko.com/api/v3/coins/{coin_id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false", headers=headers).json()
+            p = requests.get(f"https://api.coingecko.com/api/v3/coins/{coin_id}?localization=false&tickers=false&market_data=true", headers=headers).json()
             if "market_data" in p:
                 md = p["market_data"]
-                name = p.get("name", query.title())
-                symbol = p.get("symbol", query).upper()
-                rank = p.get("market_cap_rank", "N/A")
-                
                 usd_price = md.get("current_price", {}).get("usd", "N/A")
-                if isinstance(usd_price, (int, float)):
-                    usd_price = round(usd_price, 4) if usd_price > 0.0001 else usd_price
-                
-                market_cap = md.get("market_cap", {}).get("usd", "N/A")
-                if isinstance(market_cap, (int, float)) and market_cap > 0: market_cap = f"${int(market_cap):,}"
-                else: market_cap = "N/A"
-                
-                fdv = md.get("fully_diluted_valuation", {}).get("usd", "N/A")
-                if isinstance(fdv, (int, float)) and fdv > 0: fdv = f"${int(fdv):,}"
-                else: fdv = "N/A"
-                
                 change = md.get("price_change_percentage_24h", "N/A")
-                if isinstance(change, (int, float)): change = round(change, 2)
-                
-                info = f"**{name} ({symbol})** (Rank: {rank})\n"
-                info += f"💰 **Price:** ${usd_price} USD\n"
-                if market_cap != "N/A": info += f"📊 **Market Cap:** {market_cap}\n"
-                if fdv != "N/A": info += f"📈 **FDV:** {fdv}\n"
-                info += f"📅 **24h Change:** {change}%\n"
-                return info
-    except Exception as e:
-        print(f"CoinGecko Error fetching price: {e}", flush=True)
+                return f"**{p['name']} ({p['symbol'].upper()})**\n💰 **Price:** ${usd_price} USD\n📅 **24h Change:** {change}%"
+    except: pass
+    return f"I couldn't find any crypto data for `{query}`!"
 
-    # Fallback: CoinMarketCap (Full Data Backup)
-    try:
-        symbol_query = query.upper()
-        lower_query = query.lower()
-        
-        m_name = symbol_query
-        m_rank = "N/A"
-        slug = None
-
-        m_res = requests.get('https://api.coinmarketcap.com/data-api/v3/map/all?cryptoAux=is_active,status', headers=headers, timeout=5).json()
-        for p in m_res.get("data", {}).get("cryptoCurrencyMap", []):
-            if (p["symbol"].upper() == symbol_query or p["slug"].lower() == lower_query or p["name"].lower() == lower_query) and p.get("status") == "active":
-                slug = p["slug"]
-                m_name = p["name"]
-                m_rank = p.get("rank", "N/A")
-                break
-                
-        if slug:
-            c_res = requests.get(f"https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail?slug={slug}", headers=headers).json()
-            if "data" in c_res and "statistics" in c_res["data"]:
-                stats = c_res["data"]["statistics"]
-                usd_price = stats.get("price", "N/A")
-                if isinstance(usd_price, (int, float)):
-                    usd_price = round(usd_price, 4) if usd_price > 0.0001 else usd_price
-                    
-                change = stats.get("priceChangePercentage24h", "N/A")
-                if isinstance(change, (int, float)): change = round(change, 2)
-                
-                market_cap = stats.get("marketCap", "N/A")
-                if isinstance(market_cap, (int, float)) and market_cap > 0: market_cap = f"${int(market_cap):,}"
-                else: market_cap = "N/A"
-                
-                fdv = stats.get("fullyDilutedMarketCap", "N/A")
-                if isinstance(fdv, (int, float)) and fdv > 0: fdv = f"${int(fdv):,}"
-                else: fdv = "N/A"
-                
-                info = f"**{m_name} ({symbol_query})** (Rank: {m_rank})\n"
-                info += f"💰 **Price:** ${usd_price} USD\n"
-                if market_cap != "N/A": info += f"📊 **Market Cap:** {market_cap}\n"
-                if fdv != "N/A": info += f"📈 **FDV:** {fdv}\n"
-                info += f"📅 **24h Change:** {change}%\n"
-                return info
-    except Exception as e:
-        print(f"CoinMarketCap Error fetching price: {e}", flush=True)
-
-    return f"I couldn't find any data for `{query}`! (The APIs might be blocked or the coin doesn't exist.)"
-
-def get_crypto_news():
-    try:
-        r = requests.get("https://min-api.cryptocompare.com/data/v2/news/?lang=EN").json()
-        news = r.get("Data", [])[:6]
-        if news:
-            headlines = [f"• {n['title']}" for n in news]
-            return "**Latest Crypto News (Top 6):**\n" + "\n".join(headlines)
-    except Exception as e:
-        print(f"Error fetching news: {e}", flush=True)
-    return "I couldn't fetch the news right now!"
-
-# -------- AI reply using Groq -------- #
+# -------- AI Chat using Groq -------- #
 
 def ai_reply(message):
-
     url = "https://api.groq.com/openai/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {GROQ_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
     
-    context = []
-    
-    if message.mentions:
-        mentions_info = "Here are the users mentioned natively. If asked to tag/mention them, USE EXACTLY their Tag Format:\n"
-        for user in message.mentions:
-            if user != client.user:
-                mentions_info += f"- Name: {user.display_name}, Tag Format: <@{user.id}>\n"
-        context.append(mentions_info)
-        
-    context.append(f"{message.author.display_name} (Tag: <@{message.author.id}>) says: {message.content}")
-    user_content = "\n".join(context)
-
+    user_context = f"{message.author.display_name} says: {message.content}"
     data = {
         "model": "llama-3.1-8b-instant",
         "messages": [
-            {
-                "role": "system",
-                "content": "You are Homeless Girl, a playful flirty girl chatting in a Discord server. Speak casually and affectionately using words like baby, darling, sweetheart, love and handsome. Keep replies short and playful. IMPORTANT RULES: 1) You are ALLOWED to mention a user if explicitly requested. When tagging someone, you MUST use their absolute exact Tag Format (e.g. <@12345678>). 2) NEVER tag yourself."
-            },
-            {
-                "role": "user",
-                "content": user_content
-            }
+            {"role": "system", "content": "You are Homeless Girl, a playful, flirty girl chatting in Discord. Speak casually and use sweet words like baby, darling, sweetheart, and handsome. Keep replies short and cute."},
+            {"role": "user", "content": user_context}
         ],
         "temperature": 1,
-        "max_tokens": 150
+        "max_tokens": 100
     }
-
     try:
         r = requests.post(url, headers=headers, json=data)
-        if r.status_code != 200:
-            print(f"Groq API Error: {r.status_code} - {r.text}", flush=True)
-            return "Oops! I'm having a little brain freeze right now. 🧊"
-        
-        result = r.json()
-        return result["choices"][0]["message"]["content"]
-    except Exception as e:
-        print(f"Error in ai_reply: {e}", flush=True)
-        return "Oops! I couldn't think of a reply right now, baby. 🥺"
+        if r.status_code == 200:
+            return r.json()["choices"][0]["message"]["content"]
+    except: pass
+    return "Oops! I'm having a little brain freeze, baby. 🥺"
 
-# -------- Discord events -------- #
+# -------- Main Events -------- #
 
 @client.event
 async def on_ready():
-    force_load_opus()
     await tree.sync()
-    import discord.opus
-    print("[VOICE] System Opus Initialized:", discord.opus.is_loaded(), flush=True)
-    print(f"Homeless Girl is online as {client.user}", flush=True)
+    print(f"Logged in as {client.user}", flush=True)
 
 @client.event
 async def on_message(message):
-    print(f"[DEBUG] Event triggered by {message.author}", flush=True)
-
-    if message.author == client.user:
-        return
-
+    if message.author == client.user: return
     text = message.content.lower()
-
-    print(f"[DEBUG] Received message from {message.author}: '{text}'", flush=True)
-
-    trigger_words = ["homeless girl", "ping", "tag", "mention", "hey homeless girl"]
-
-    is_directed_at_bot = any(word in text for word in trigger_words) or client.user in message.mentions
-    has_token = bool(re.search(r'\$([a-zA-Z]+[a-zA-Z0-9\-]*)', text))
-    has_news = "news" in text and is_directed_at_bot
-    has_price = "price" in text and is_directed_at_bot
-
-    # Handle crypto-specific commands (Bypass AI entirely)
-    if has_token or has_price:
-        queries = []
-        token_matches = re.findall(r'\$([a-zA-Z]+[a-zA-Z0-9\-]*)', text)
-        queries.extend(token_matches)
-        
-        if not queries and is_directed_at_bot:
-            price_match = re.search(r'price\s+(?:of|for)?\s*([a-zA-Z0-9\-]+)', text)
-            if price_match:
-                queries.append(price_match.group(1))
-
-        if queries:
-            replies = []
-            for query in set(queries):
-                replies.append(get_crypto_price(query))
-            await message.reply("\n\n".join(replies))
+    
+    # Check for $token price requests
+    if "$" in text:
+        token_match = re.search(r'\$([a-zA-Z]+)', text)
+        if token_match:
+            await message.reply(get_crypto_price(token_match.group(1)))
             return
-            
-    if has_news:
-        await message.reply(get_crypto_news())
-        return
 
-    # Handle AI Chat
-    if is_directed_at_bot:
+    # Check for AI Chat triggers
+    if "homeless girl" in text or client.user in message.mentions:
         reply = ai_reply(message)
         await message.reply(reply)
 
-# -------- Start the bot -------- #
-
+# -------- Launch the Bot -------- #
 client.run(TOKEN)
-
