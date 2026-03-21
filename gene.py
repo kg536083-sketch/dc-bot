@@ -43,7 +43,7 @@ class YTDLSource:
     @classmethod
     async def from_query(cls, query, *, loop=None, stream=False):
         loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch:{query}", download=not stream))
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"scsearch:{query}", download=not stream))
 
         if 'entries' in data:
             data = data['entries'][0]
