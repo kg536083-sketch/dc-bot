@@ -73,76 +73,52 @@ class YTDLSource:
 def ensure_opus_loaded() -> bool:
     """
     Ensure discord.py's Opus bindings are loaded.
-
-    On Windows, load discord.py's bundled DLL.
-    On Linux/macOS, use system libopus via ctypes discovery.
+    Uses shell 'find' to discover hidden libraries in Railway containers.
     """
     import discord.opus
-    import discord as discord_pkg
-    import struct
+    import os
 
     if discord.opus.is_loaded():
         return True
 
-    # Windows: discord.py bundles the opus DLLs inside the discord package.
+    # Windows Native
     if os.name == "nt":
         try:
+            import discord as discord_pkg
+            import struct
             basedir = os.path.dirname(os.path.abspath(discord_pkg.__file__))
-            bitness = struct.calcsize("P") * 8
-            target = "x64" if bitness > 32 else "x86"
-            dll_path = os.path.join(basedir, "bin", f"libopus-0.{target}.dll")
-            discord.opus.load_opus(dll_path)
+            target = "x64" if struct.calcsize("P") * 8 > 32 else "x86"
+            discord.opus.load_opus(os.path.join(basedir, "bin", f"libopus-0.{target}.dll"))
         except Exception:
             pass
-    else:
-        # Linux/macOS: try common sonames first, then ctypes discovery.
-        try:
-            import ctypes.util
-            candidates = [
-                "libopus.so.0",
-                "libopus.so.1",
-                "libopus.so",
-                "/usr/lib/x86_64-linux-gnu/libopus.so.0",
-                "/usr/lib/libopus.so.0",
-                "opus",
-            ]
-            found = ctypes.util.find_library("opus")
-            if found:
-                candidates.append(found)
+        return discord.opus.is_loaded()
 
-            for name in candidates:
-                try:
-                    discord.opus.load_opus(name)
-                    if discord.opus.is_loaded():
-                        print(f"[VOICE] Opus loaded with: {name}", flush=True)
-                        break
-                except Exception:
-                    continue
-        except Exception:
-            pass
+    # Linux (Railway / Docker Native) Fast Discovery
+    import subprocess
+    try:
+        print("[VOICE] Scanning server for Opus libraries...", flush=True)
+        output = subprocess.check_output('find /nix/store /usr/lib /lib -name "libopus.so*" -type f -print -quit 2>/dev/null', shell=True).decode('utf-8')
+        for path in output.strip().split('\n'):
+            if not path: continue
+            try:
+                discord.opus.load_opus(path)
+                if discord.opus.is_loaded():
+                    print(f"[VOICE] Found and loaded Opus from: {path}", flush=True)
+                    return True
+            except Exception:
+                pass
+    except Exception:
+        pass
 
-        # Railway Nixpacks completely isolates dependencies into /nix/store. Ctypes find_library CANNOT find it there.
-        # So we aggressively deep search the known Nixpacks path and standard paths.
-        if not discord.opus.is_loaded():
-            search_dirs = ["/nix/store", "/usr/lib", "/lib"]
-            for search_dir in search_dirs:
-                if discord.opus.is_loaded(): break
-                if not os.path.exists(search_dir): continue
-                for root, dirs, files in os.walk(search_dir):
-                    if discord.opus.is_loaded(): break
-                    for file in files:
-                        if "libopus.so" in file:
-                            path = os.path.join(root, file)
-                            try:
-                                discord.opus.load_opus(path)
-                                if discord.opus.is_loaded():
-                                    print(f"[VOICE] Opus loaded forcefully from: {path}", flush=True)
-                                    break
-                            except Exception:
-                                pass
+    # Basic Fallback
+    try:
+        import ctypes.util
+        discord.opus.load_opus(ctypes.util.find_library("opus") or "libopus.so.0")
+    except Exception:
+        pass
 
     if not discord.opus.is_loaded():
-        print("[VOICE] Opus failed to load. Ensure system package libopus0 is installed.", flush=True)
+        print("[VOICE] Opus completely failed to load! Ensure libopus0 is installed.", flush=True)
 
     return discord.opus.is_loaded()
 
