@@ -3,4 +3,5 @@ requests
 yt-dlp
 davey
 PyNaCl
+opuslib
 imageio-ffmpeg
