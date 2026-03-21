@@ -52,9 +52,8 @@ class YTDLSource:
         import imageio_ffmpeg
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         
-        # from_probe() forces FFmpeg to transcode AAC/MP3 directly into Opus packets
-        # This completely bypasses the need for the broken libopus system library!
-        source = await discord.FFmpegOpusAudio.from_probe(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        # Switched back to PCM audio to completely prevent silent playback bugs.
+        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options))
         return source, data
 
     @classmethod
@@ -69,11 +68,25 @@ class YTDLSource:
         import imageio_ffmpeg
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         
-        # Same here, fully bypass libopus!
-        source = await discord.FFmpegOpusAudio.from_probe(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options))
         return source, data
 
-# (Removed the opus loader wrapper)
+def force_load_opus():
+    import discord.opus
+    import os
+    if discord.opus.is_loaded(): return
+    if os.name == 'nt':
+        try:
+            import discord as discord_pkg, struct
+            bd = os.path.dirname(os.path.abspath(discord_pkg.__file__))
+            discord.opus.load_opus(os.path.join(bd, 'bin', f"libopus-0.{'x64' if struct.calcsize('P')*8 > 32 else 'x86'}.dll"))
+        except: pass
+    else:
+        try: discord.opus.load_opus('libopus.so.0')
+        except: 
+            import ctypes.util
+            try: discord.opus.load_opus(ctypes.util.find_library('opus'))
+            except: pass
 
 # -------- Slash Commands for Music -------- #
 
@@ -296,8 +309,10 @@ def ai_reply(message):
 
 @client.event
 async def on_ready():
+    force_load_opus()
     await tree.sync()
-    print("[VOICE] Using FFmpegOpusAudio playback path.", flush=True)
+    import discord.opus
+    print("[VOICE] System Opus Initialized:", discord.opus.is_loaded(), flush=True)
     print(f"Homeless Girl is online as {client.user}", flush=True)
 
 @client.event
@@ -348,4 +363,3 @@ async def on_message(message):
 # -------- Start the bot -------- #
 
 client.run(TOKEN)
-
