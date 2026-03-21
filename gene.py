@@ -75,6 +75,17 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
 @tree.command(name="play", description="Play a song or use 'music' for random music")
 async def play(interaction: discord.Interaction, query: str):
+    import discord.opus
+    if not discord.opus.is_loaded():
+        fallbacks = ['libopus.so.0', 'libopus.so', '/usr/lib/x86_64-linux-gnu/libopus.so.0', '/usr/lib/aarch64-linux-gnu/libopus.so.0']
+        for lib in fallbacks:
+            try:
+                discord.opus.load_opus(lib)
+                if discord.opus.is_loaded():
+                    break
+            except Exception:
+                pass
+
     if not interaction.guild:
         await interaction.response.send_message("❌ You must use this command in a server!")
         return
