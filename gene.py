@@ -1,792 +1,421 @@
-<!DOCTYPE html>
-<html lang="en">
+import discord
+from discord import app_commands
+import requests
+import os
+import re
+import asyncio
+import yt_dlp
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Prisma X Content Maker by Ayush</title>
+TOKEN = os.getenv("DISCORD_TOKEN")
+GROQ_KEY = os.getenv("GROQ_API_KEY")
 
-    <!-- Google Fonts for UI and Canvas -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Amatic+SC&family=Anton&family=Architects+Daughter&family=Audiowide&family=Bebas+Neue&family=Caveat&family=Caveat+Brush&family=Cinzel:wght@400;600;700;900&family=Cinzel+Decorative&family=Coming+Soon&family=Cormorant+Garamond&family=Covered+By+Your+Grace&family=Dancing+Script&family=Fredoka+One&family=Gloria+Hallelujah&family=Gochi+Hand&family=Handlee&family=IM+Fell+English&family=Indie+Flower&family=Just+Another+Hand&family=Kalam&family=Libre+Baskerville&family=Lilita+One&family=Montserrat:wght@400;600;700&family=Nunito:wght@400;600;700&family=Orbitron&family=Oswald&family=Pacifico&family=Patrick+Hand&family=Playfair+Display&family=Poppins:wght@400;600;700&family=Quicksand:wght@400;600;700&family=Raleway:wght@400;600;700&family=Reenie+Beanie&family=Righteous&family=Rock+Salt&family=Satisfy&family=Shadows+Into+Light&display=swap"
-        rel="stylesheet">
+intents = discord.Intents.default()
+intents.message_content = True
 
-    <!-- FontAwesome for Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
-    <!-- Fabric.js 5.3 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+# -------- Music Source Setup -------- #
 
-    <!-- Pickr Color Picker -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/nano.min.css"/>
-    <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+ytdl_format_options = {
+    'format': 'bestaudio/best',
+    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'noplaylist': True,
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'logtostderr': False,
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'auto',
+    'source_address': '0.0.0.0'
+}
 
-    <link rel="stylesheet" href="style.css">
-</head>
+ffmpeg_options = {
+    'options': '-vn',
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+}
 
-<body>
-    <!-- Background Particles -->
-    <div id="particles"></div>
+ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
-    <!-- Startup Ratio Modal -->
-    <div id="startup_modal" class="modal-overlay">
-        <div class="modal-content gold-theme">
-            <h1>PrismaX Content Maker by Ayush</h1>
-            <p>Select your canvas ratio to begin</p>
-            <div class="ratio-grid">
-                <button class="ratio-btn" data-width="1080" data-height="1080">
-                    <div class="shape square"></div>1:1 (Square)
-                </button>
-                <button class="ratio-btn" data-width="1920" data-height="1080">
-                    <div class="shape landscape"></div>16:9 (Video)
-                </button>
-                <button class="ratio-btn" data-width="1080" data-height="1920">
-                    <div class="shape portrait"></div>9:16 (Story)
-                </button>
-                <button class="ratio-btn" data-width="1080" data-height="1440">
-                    <div class="shape threefour"></div>3:4 (Portrait)
-                </button>
-            </div>
-            <div class="custom-ratio">
-                <input type="number" id="custom_w" placeholder="W" value="800">
-                <span style="color:var(--primary-gold)">x</span>
-                <input type="number" id="custom_h" placeholder="H" value="600">
-                <button id="btn_custom_ratio" class="gold-btn">Set Custom</button>
-            </div>
-        </div>
-    </div>
+class YTDLSource:
 
-    <!-- Main App Wrapper -->
-    <div id="app" class="hidden">
+    @classmethod
+    async def from_query(cls, query, *, loop=None, stream=False):
+        loop = loop or asyncio.get_event_loop()
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"scsearch:{query}", download=not stream))
 
-        <!-- Left Sidebar / Bottom Sheet Mobile -->
-        <aside id="left_sidebar" class="sidebar tools-sidebar">
-            <div class="panel-header mobile-only">
-                <div style="display:flex; gap: 15px; align-items:center;">
-                    <button class="close-sheet back-btn" style="font-size:1.2rem; padding:5px;"><i
-                            class="fa-solid fa-arrow-left"></i></button>
-                    <h3 id="mobile_tools_title" style="margin:0; font-size:1.2rem;">TOOLS</h3>
-                </div>
-                <button class="close-sheet" style="font-size:1.5rem; padding:5px;"><i
-                        class="fa-solid fa-times"></i></button>
-            </div>
-            <div class="brand-title-img desktop-only"
-                style="text-align: center; padding: 20px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
-                <img src="assets/logos/logo-prismax-02.png" alt="PRISMA X"
-                    style="max-width: 80%; height: auto; max-height: 60px;">
-            </div>
-            <nav class="tool-nav desktop-only">
-                <button id="btn_theme_toggle_desk" class="nav-tab"><i class="fa-solid fa-circle-half-stroke"></i>
-                    Theme</button>
-                <button class="nav-tab" data-target="panel_assets"><i class="fa-solid fa-gem"></i> Assets</button>
-                <button class="nav-tab active" data-target="panel_text"><i class="fa-solid fa-font"></i> Text</button>
-                <button class="nav-tab" data-target="panel_bg"><i class="fa-solid fa-fill-drip"></i> Background</button>
-                <button class="nav-tab" data-target="panel_shapes"><i class="fa-solid fa-shapes"></i> Shapes</button>
-                <button class="nav-tab" data-target="panel_arrows"><i class="fa-solid fa-arrow-right-long"></i>
-                    Arrow</button>
-                <button class="nav-tab" data-target="panel_layers"><i class="fa-solid fa-layer-group"></i>
-                    Layers</button>
-            </nav>
-            <div class="panel-container">
-                <!-- Assets Panel -->
-                <div id="panel_assets" class="panel">
-                    <div
-                        style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom: 1px solid var(--border-gold); padding-bottom: 5px;">
-                        <h3 style="margin:0; border:none;">Library</h3>
-                        <div style="display:flex; gap: 5px;">
-                            <label class="gold-btn outline" style="margin:0; width:auto; height:auto; padding:5px 10px; font-size:0.7rem; cursor:pointer;">
-                                <i class="fa-solid fa-upload"></i> Upload
-                                <input type="file" id="upload_my_asset" accept="image/png, image/jpeg, image/svg+xml" hidden>
-                            </label>
-                            <button onclick="loadAssets()" class="gold-btn outline"
-                                style="width:auto; height:auto; padding:5px 10px; font-size:0.7rem;"><i
-                                    class="fa-solid fa-arrows-rotate"></i> Sync</button>
-                        </div>
-                    </div>
+        if 'entries' in data:
+            data = data['entries'][0]
 
-                    <div class="tab-subnav">
-                        <button class="sub-tab active" data-sub="assets_off">Official</button>
-                        <button class="sub-tab" data-sub="assets_my">Uploads</button>
-                        <button class="sub-tab" data-sub="assets_web">Search</button>
-                    </div>
+        filename = data['url'] if stream else ytdl.prepare_filename(data)
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        source = discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        return source, data
 
-                    <!-- Official Assets -->
-                    <div id="assets_off" class="sub-panel active custom-scrollbar"
-                        style="max-height: calc(100vh - 350px); overflow-y: auto;">
-                        <h4 class="asset-cat-title">Logos</h4>
-                        <div id="grid_logos" class="asset-grid"></div>
-                        <h4 class="asset-cat-title mt-20">Stickers</h4>
-                        <div id="grid_stickers" class="asset-grid"></div>
-                        <h4 class="asset-cat-title mt-20">Backgrounds</h4>
-                        <div id="grid_backgrounds_gallery" class="asset-grid"></div>
-                        <h4 class="asset-cat-title mt-20">Blocks</h4>
-                        <div id="grid_blocks" class="asset-grid">
-                            <div class="asset-item" onclick="addBlock('rect')"
-                                style="background:var(--primary-gold); border-radius:4px; border:2px solid #000;"><span
-                                    style="background:rgba(0,0,0,0.5)">Rect</span></div>
-                            <div class="asset-item" onclick="addBlock('square')"
-                                style="background:var(--primary-gold); border-radius:2px; width:40px; height:40px; margin:auto; border:2px solid #000;">
-                                <span style="background:rgba(0,0,0,0.5)">Square</span>
-                            </div>
-                            <div class="asset-item" onclick="addBlock('circle')"
-                                style="background:var(--primary-gold); border-radius:50%; border:2px solid #000;"><span
-                                    style="background:rgba(0,0,0,0.5)">Circle</span></div>
-                            <div class="asset-item" onclick="addBlock('diamond')"
-                                style="background:var(--primary-gold); clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%); border:2px solid #000;">
-                                <span style="background:rgba(0,0,0,0.5)">Diamond</span>
-                            </div>
-                            <div class="asset-item" onclick="addBlock('rhomboid')"
-                                style="background:var(--primary-gold); clip-path: polygon(25% 0%, 100% 0%, 75% 100%, 0% 100%); border:2px solid #000;">
-                                <span style="background:rgba(0,0,0,0.5)">Rhombus</span>
-                            </div>
-                            <div class="asset-item" onclick="addBlock('clipped')"
-                                style="background:var(--primary-gold); clip-path: polygon(25% 0%, 75% 0%, 100% 25%, 100% 75%, 75% 100%, 25% 100%, 0% 75%, 0% 25%); border:2px solid #000;">
-                                <span style="background:rgba(0,0,0,0.5)">Clipped</span>
-                            </div>
-                        </div>
-                        <h4 class="asset-cat-title mt-20">Elements</h4>
-                        <div id="grid_elements" class="asset-grid"></div>
-                    </div>
+    @classmethod
+    async def from_url(cls, url, *, loop=None, stream=True):
+        loop = loop or asyncio.get_event_loop()
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
 
-                    <!-- My Uploads -->
-                    <div id="assets_my" class="sub-panel custom-scrollbar" style="max-height: calc(100vh - 350px); overflow-y: auto;">
-                        <p class="helper-text" style="font-size:0.8rem; opacity:0.7; text-align:center;">Your custom uploaded images will automatically appear here!</p>
-                        <div id="my_assets_grid" class="asset-grid mt-10"></div>
-                    </div>
+        if 'entries' in data:
+            data = data['entries'][0]
 
-                    <!-- Web Search -->
-                    <div id="assets_web" class="sub-panel">
-                        <div class="search-container mb-15">
-                            <div style="display:flex; gap:10px; margin-bottom:8px;">
-                                <select id="asset_search_source"
-                                    style="background:var(--bg-dark); color:var(--primary-gold); border:1px solid var(--border-gold); border-radius:8px; padding:5px 10px; font-size:0.75rem; width: 100%;">
-                                    <option value="pixabay">Pixabay (Photos)</option>
-                                    <option value="openverse">Openverse (Free CC)</option>
-                                    <option value="icons">Iconify (SVG Icons)</option>
-                                </select>
-                            </div>
-                            <div style="position:relative;">
-                                <input type="text" id="asset_search_input" placeholder="Search the web..."
-                                    style="width:100%; padding:12px 40px 12px 15px; background:rgba(255,255,255,0.05); border:1px solid var(--border-gold); border-radius:8px; color:#fff; font-size:0.9rem;">
-                                <i class="fa-solid fa-magnifying-glass"
-                                    style="position:absolute; right:15px; top:50%; transform:translateY(-50%); color:var(--primary-gold); cursor:pointer;"
-                                    id="btn_do_search"></i>
-                            </div>
-                        </div>
-                        <div id="grid_search_results" class="asset-grid custom-scrollbar"
-                            style="max-height: calc(100vh - 450px); overflow-y: auto;">
-                            <div style="text-align:center; padding:40px; opacity:0.3; font-size:0.8rem;">Enter keywords
-                                to find thousands of assets</div>
-                        </div>
-                    </div>
-                </div>
-                <!-- Text Panel -->
-                <div id="panel_text" class="panel">
-                    <h3>Text Tool</h3>
-                    <div class="grid-3 mb-15">
-                        <button id="btn_add_heading" class="gold-btn" style="font-size:0.9rem; padding:10px 5px"
-                            title="Heading">H1</button>
-                        <button id="btn_add_subheading" class="gold-btn outline"
-                            style="font-size:0.8rem; padding:10px 5px" title="Subheading">H2</button>
-                        <button id="btn_add_body" class="gold-btn outline" style="font-size:0.8rem; padding:10px 5px"
-                            title="Body Text">Body</button>
-                    </div>
-                    <div class="font-search">
-                        <input type="text" id="font_search_input" placeholder="Search fonts...">
-                    </div>
-                    <label class="gold-btn block-btn mb-15 outline">
-                        <i class="fa-solid fa-upload"></i> Upload Extra Font
-                        <input type="file" id="upload_own_font" accept=".ttf,.otf" hidden>
-                    </label>
-                    <div id="font_list" class="font-list custom-scrollbar"></div>
-                </div>
+        filename = data['url'] if stream else ytdl.prepare_filename(data)
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        source = discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        return source, data
 
-                <!-- Background Panel -->
-                <div id="panel_bg" class="panel">
-                    <h3>Canvas Background</h3>
-                    <div class="bg-section">
-                        <h4>Solid Colors</h4>
-                        <div class="color-grid" id="bg_solid_grid"></div>
-                        <div class="input-group mt-10">
-                            <label>Pick Custom Color</label>
-                            <input type="color" id="bg_solid_picker" value="#ffffff"
-                                style="height:38px; min-height:auto;">
-                        </div>
-                    </div>
-                    <div class="bg-section">
-                        <h4>Gradients</h4>
-                        <div class="gradient-grid" id="bg_grad_grid"></div>
-                        <div class="mt-10"
-                            style="background:rgba(212,175,55,0.05); padding:10px; border-radius:8px; border:1px solid var(--border-gold);">
-                            <label
-                                style="font-size:0.8rem; color:var(--primary-gold); font-weight:bold; display:block; margin-bottom:8px;">Custom
-                                Gradient Designer</label>
-                            <div class="grid-2">
-                                <div class="input-group">
-                                    <label style="font-size:0.7rem;">Start</label>
-                                    <input type="color" id="bg_grad_start" value="#D4AF37"
-                                        style="height:32px; min-height:auto;">
-                                </div>
-                                <div class="input-group">
-                                    <label style="font-size:0.7rem;">End</label>
-                                    <input type="color" id="bg_grad_end" value="#000000"
-                                        style="height:32px; min-height:auto;">
-                                </div>
-                            </div>
-                            <button id="btn_apply_custom_grad" class="gold-btn block-btn mt-5 small"
-                                style="min-height:32px; font-size:0.8rem;">Apply Custom</button>
-                        </div>
-                    </div>
-                    <div class="bg-section">
-                        <h4>Official Backgrounds</h4>
-                        <div id="grid_backgrounds" class="asset-grid"></div>
-                    </div>
-                    <div class="bg-section">
-                        <label class="gold-btn block-btn mb-10"><i class="fa-solid fa-images"></i> Upload Image
-                            <input type="file" id="bg_image_upload" accept="image/*" hidden>
-                        </label>
-                        <button id="btn_remove_bg" class="gold-btn block-btn danger-outline"><i
-                                class="fa-solid fa-eraser"></i> Clear Background</button>
-                    </div>
-                </div>
+# -------- Opus / Voice Helpers -------- #
 
-                <!-- Shapes Panel -->
-                <div id="panel_shapes" class="panel">
-                    <h3>Shapes</h3>
-                    <div class="bg-section mt-10 custom-scrollbar"
-                        style="max-height: calc(100vh - 250px); overflow-y: auto;">
-                        <h4 style="font-size:0.75rem; opacity:0.6; margin-bottom:8px;">Basic Shapes</h4>
-                        <div class="grid-4 mb-10">
-                            <button id="btn_add_rect" class="shape-btn" title="Rectangle"><i
-                                    class="fa-solid fa-square"></i></button>
-                            <button id="btn_add_rounded_rect" class="shape-btn" title="Rounded Rectangle"><i
-                                    class="fa-solid fa-square" style="border-radius:4px;"></i></button>
-                            <button id="btn_add_circle" class="shape-btn" title="Circle"><i
-                                    class="fa-solid fa-circle"></i></button>
-                            <button id="btn_add_ring" class="shape-btn" title="Ring"><i
-                                    class="fa-regular fa-circle"></i></button>
-                            <button id="btn_add_diamond" class="shape-btn" title="Diamond"><i class="fa-solid fa-square"
-                                    style="transform: rotate(45deg); font-size:0.8em;"></i></button>
-                            <button id="btn_add_triangle" class="shape-btn" title="Triangle"><i
-                                    class="fa-solid fa-caret-up"></i></button>
-                            <button id="btn_add_triangle_down" class="shape-btn" title="Triangle Down"><i
-                                    class="fa-solid fa-caret-down"></i></button>
-                            <button id="btn_add_triangle_right" class="shape-btn" title="Right Triangle"><i
-                                    class="fa-solid fa-caret-right"></i></button>
-                        </div>
+def ensure_opus_loaded() -> bool:
+    """
+    Ensure discord.py's Opus bindings are loaded.
 
-                        <h4 style="font-size:0.75rem; opacity:0.6; margin-bottom:8px;">Polygons</h4>
-                        <div class="grid-4 mb-10">
-                            <button id="btn_add_pentagon" class="shape-btn" title="Pentagon"><i class="fa-solid fa-play"
-                                    style="transform: rotate(-90deg);"></i></button>
-                            <button id="btn_add_hexagon" class="shape-btn" title="Hexagon"><i
-                                    class="fa-solid fa-cube"></i></button>
-                            <button id="btn_add_octagon" class="shape-btn" title="Octagon"><i
-                                    class="fa-solid fa-stop"></i></button>
-                            <button id="btn_add_star" class="shape-btn" title="Star"><i
-                                    class="fa-solid fa-star"></i></button>
-                            <button id="btn_add_star4" class="shape-btn" title="4-Point Star"><i
-                                    class="fa-solid fa-diamond"></i></button>
-                            <button id="btn_add_star6" class="shape-btn" title="6-Point Star"><i
-                                    class="fa-solid fa-asterisk"></i></button>
-                            <button id="btn_add_cross" class="shape-btn" title="Cross / Plus"><i
-                                    class="fa-solid fa-plus"></i></button>
-                            <button id="btn_add_parallelogram" class="shape-btn" title="Parallelogram"><i
-                                    class="fa-solid fa-bars" style="transform: skewX(-15deg);"></i></button>
-                        </div>
+    On Windows, load discord.py's bundled DLL.
+    On Linux/macOS, use system libopus via ctypes discovery.
+    """
+    import discord.opus
+    import discord as discord_pkg
+    import struct
 
-                        <h4 style="font-size:0.75rem; opacity:0.6; margin-bottom:8px;">Special Shapes</h4>
-                        <div class="grid-4 mb-10">
-                            <button id="btn_add_heart" class="shape-btn" title="Heart"><i
-                                    class="fa-solid fa-heart"></i></button>
-                            <button id="btn_add_cloud" class="shape-btn" title="Cloud"><i
-                                    class="fa-solid fa-cloud"></i></button>
-                            <button id="btn_add_lightning" class="shape-btn" title="Lightning Bolt"><i
-                                    class="fa-solid fa-bolt"></i></button>
-                            <button id="btn_add_moon" class="shape-btn" title="Crescent Moon"><i
-                                    class="fa-solid fa-moon"></i></button>
-                            <button id="btn_add_speech" class="shape-btn" title="Speech Bubble"><i
-                                    class="fa-solid fa-comment"></i></button>
-                            <button id="btn_add_badge" class="shape-btn" title="Badge"><i
-                                    class="fa-solid fa-certificate"></i></button>
-                            <button id="btn_add_shield" class="shape-btn" title="Shield"><i
-                                    class="fa-solid fa-shield"></i></button>
-                            <button id="btn_add_explosion" class="shape-btn" title="Explosion"><i
-                                    class="fa-solid fa-burst"></i></button>
-                        </div>
+    if discord.opus.is_loaded():
+        return True
 
-                        <h4 style="font-size:0.75rem; opacity:0.6; margin-bottom:8px;">Arrow Shapes</h4>
-                        <div class="grid-4 mb-10">
-                            <button id="btn_add_arrow_right" class="shape-btn" title="Arrow Right"><i
-                                    class="fa-solid fa-arrow-right"></i></button>
-                            <button id="btn_add_arrow_left" class="shape-btn" title="Arrow Left"><i
-                                    class="fa-solid fa-arrow-left"></i></button>
-                            <button id="btn_add_arrow_up" class="shape-btn" title="Arrow Up"><i
-                                    class="fa-solid fa-arrow-up"></i></button>
-                            <button id="btn_add_arrow_down" class="shape-btn" title="Arrow Down"><i
-                                    class="fa-solid fa-arrow-down"></i></button>
-                            <button id="btn_add_chevron_right" class="shape-btn" title="Chevron Right"><i
-                                    class="fa-solid fa-chevron-right"></i></button>
-                            <button id="btn_add_double_arrow" class="shape-btn" title="Double Arrow"><i
-                                    class="fa-solid fa-arrows-left-right"></i></button>
-                            <button id="btn_add_curved_arrow" class="shape-btn" title="Curved Arrow"><i
-                                    class="fa-solid fa-rotate-right"></i></button>
-                            <button id="btn_add_bend_arrow" class="shape-btn" title="Bend Arrow"><i
-                                    class="fa-solid fa-share"></i></button>
-                        </div>
+    # Windows: discord.py bundles the opus DLLs inside the discord package.
+    if os.name == "nt":
+        try:
+            basedir = os.path.dirname(os.path.abspath(discord_pkg.__file__))
+            bitness = struct.calcsize("P") * 8
+            target = "x64" if bitness > 32 else "x86"
+            dll_path = os.path.join(basedir, "bin", f"libopus-0.{target}.dll")
+            discord.opus.load_opus(dll_path)
+        except Exception:
+            pass
+    else:
+        # Linux/macOS: try common sonames first, then ctypes discovery.
+        try:
+            import ctypes.util
+            candidates = [
+                "libopus.so.0",
+                "libopus.so.1",
+                "libopus.so",
+                "/usr/lib/x86_64-linux-gnu/libopus.so.0",
+                "/usr/lib/libopus.so.0",
+                "opus",
+            ]
+            found = ctypes.util.find_library("opus")
+            if found:
+                candidates.append(found)
 
-                        <h4 style="font-size:0.75rem; opacity:0.6; margin-bottom:8px;">Lines & Dividers</h4>
-                        <div class="grid-4 mb-10">
-                            <button id="btn_add_line" class="shape-btn" title="Straight Line"><i
-                                    class="fa-solid fa-minus"></i></button>
-                            <button id="btn_add_dashed_line" class="shape-btn" title="Dashed Line"><i
-                                    class="fa-solid fa-ellipsis"></i></button>
-                            <button id="btn_add_dotted_line" class="shape-btn" title="Dotted Line"><i
-                                    class="fa-solid fa-grip-lines"></i></button>
-                            <button id="btn_add_thick_line" class="shape-btn" title="Thick Line"><i
-                                    class="fa-solid fa-ruler-horizontal"></i></button>
-                            <button id="btn_add_bracket_left" class="shape-btn" title="Left Bracket"><span
-                                    style="font-size:1.4rem; font-weight:200;">{</span></button>
-                            <button id="btn_add_bracket_right" class="shape-btn" title="Right Bracket"><span
-                                    style="font-size:1.4rem; font-weight:200;">}</span></button>
-                            <button id="btn_add_divider_ornate" class="shape-btn" title="Ornate Divider"><i
-                                    class="fa-solid fa-grip-lines-vertical"></i></button>
-                            <button id="btn_add_wave_line" class="shape-btn" title="Wave Line"><i
-                                    class="fa-solid fa-water"></i></button>
-                        </div>
+            for name in candidates:
+                try:
+                    discord.opus.load_opus(name)
+                    if discord.opus.is_loaded():
+                        print(f"[VOICE] Opus loaded with: {name}", flush=True)
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
-                        <h4 style="font-size:0.75rem; opacity:0.6; margin-bottom:8px;">Design Icons</h4>
-                        <div class="grid-4 mb-10">
-                            <button id="btn_add_checkmark" class="shape-btn" title="Checkmark"><i
-                                    class="fa-solid fa-check"></i></button>
-                            <button id="btn_add_xmark" class="shape-btn" title="X Mark"><i
-                                    class="fa-solid fa-xmark"></i></button>
-                            <button id="btn_add_location" class="shape-btn" title="Location Pin"><i
-                                    class="fa-solid fa-location-dot"></i></button>
-                            <button id="btn_add_bookmark" class="shape-btn" title="Bookmark"><i
-                                    class="fa-solid fa-bookmark"></i></button>
-                            <button id="btn_add_ribbon" class="shape-btn" title="Ribbon Banner"><i
-                                    class="fa-solid fa-ribbon"></i></button>
-                            <button id="btn_add_trophy" class="shape-btn" title="Trophy"><i
-                                    class="fa-solid fa-trophy"></i></button>
-                            <button id="btn_add_crown" class="shape-btn" title="Crown"><i
-                                    class="fa-solid fa-crown"></i></button>
-                            <button id="btn_add_fire" class="shape-btn" title="Fire"><i
-                                    class="fa-solid fa-fire"></i></button>
-                        </div>
-                    </div>
-                </div>
+        # Railway Nixpacks completely isolates dependencies into /nix/store. Ctypes find_library CANNOT find it there.
+        # So we aggressively deep search the known Nixpacks path and standard paths.
+        if not discord.opus.is_loaded():
+            search_dirs = ["/nix/store", "/usr/lib", "/lib"]
+            for search_dir in search_dirs:
+                if discord.opus.is_loaded(): break
+                if not os.path.exists(search_dir): continue
+                for root, dirs, files in os.walk(search_dir):
+                    if discord.opus.is_loaded(): break
+                    for file in files:
+                        if "libopus.so" in file:
+                            path = os.path.join(root, file)
+                            try:
+                                discord.opus.load_opus(path)
+                                if discord.opus.is_loaded():
+                                    print(f"[VOICE] Opus loaded forcefully from: {path}", flush=True)
+                                    break
+                            except Exception:
+                                pass
 
-                <!-- Arrow Panel -->
-                <div id="panel_arrows" class="panel">
-                    <h3>Lines & Arrows</h3>
-                    <div class="bg-section mt-10">
-                        <h4 style="font-size:0.75rem; opacity:0.6; margin-bottom:8px;">Connectors</h4>
-                        <div class="grid-2 mt-10">
-                            <button id="btn_add_free_arrow" class="gold-btn outline" style="font-size: 0.8rem;"><i
-                                    class="fa-solid fa-arrow-right-long"></i> Free Arrow</button>
-                            <button id="btn_add_arrow" class="gold-btn outline" style="font-size: 0.8rem;"><i
-                                    class="fa-solid fa-link"></i> Smart Arrow</button>
-                        </div>
-                        <p class="helper-text mt-10" style="font-size: 0.8rem; opacity: 0.7;">Tap 'Smart Arrow' then tap
-                            two
-                            shapes to connect them.</p>
-                    </div>
-                </div>
+    if not discord.opus.is_loaded():
+        print("[VOICE] Opus failed to load. Ensure system package libopus0 is installed.", flush=True)
 
-                <!-- Layers Panel -->
-                <div id="panel_layers" class="panel">
-                    <h3>Layers</h3>
-                    <div id="layers_list" class="layers-list custom-scrollbar"
-                        style="max-height: calc(100vh - 250px); overflow-y: auto;">
-                        <!-- Populated via JS -->
-                    </div>
-                </div>
-            </div>
+    return discord.opus.is_loaded()
 
-            <button class="nav-tab export-btn" id="btn_top_download"><i class="fa-solid fa-download"></i>
-                Download</button>
-        </aside>
+# -------- Slash Commands for Music -------- #
 
-        <!-- Canvas Area -->
-        <main id="workspace">
-            <!-- Top Horizontal Bar (Outside Canvas) -->
-            <div class="top-row-controls">
-                <div class="left-controls" style="display:flex; align-items:center; gap: 5px;">
-                    <button id="btn_reset_studio" title="New Design (Clear All)"
-                        style="color: #ff5555; font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 0.75rem; letter-spacing: 1px; width: auto; padding: 0 10px;">CLR</button>
-                    <button id="btn_ratio_change" title="Change Canvas Ratio"><i
-                            class="fa-solid fa-crop-simple"></i></button>
-                    <button id="btn_undo" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
-                    <button id="btn_redo" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+@tree.command(name="play", description="Play a song or use 'music' for random music")
+async def play(interaction: discord.Interaction, query: str):
+    if not interaction.guild:
+        await interaction.response.send_message("❌ You must use this command in a server!")
+        return
 
-                    <button id="btn_save_progress" title="Save Progress (Merge All)"
-                        style="color: var(--primary-gold); font-family: 'Montserrat', sans-serif; font-size: 0.75rem; width: auto; padding: 0 10px; margin-left: 5px; border: 1px solid var(--border-gold); background: var(--bg-dark); border-radius: 4px; border-width: 1px;">
-                        <i class="fa-solid fa-layer-group" style="padding-right: 4px;"></i> Save Progress
-                    </button>
+    TARGET_CHANNEL_ID = 1467485300791181333
+    channel = client.get_channel(TARGET_CHANNEL_ID)
+    
+    if not channel:
+        try:
+            channel = await client.fetch_channel(TARGET_CHANNEL_ID)
+        except:
+            await interaction.response.send_message("❌ Couldn't find the target streaming channel!")
+            return
 
-                    <!-- Zoom Controls -->
-                    <div
-                        style="display:flex; align-items:center; background:var(--bg-dark); border-radius:15px; border:1px solid var(--border-gold); padding:0 5px; margin-left: 10px;">
-                        <button id="btn_zoom_out" title="Zoom Out"
-                            style="background:transparent; border:none; color:var(--primary-gold); font-size: 0.8rem; padding: 5px;"><i
-                                class="fa-solid fa-magnifying-glass-minus"></i></button>
-                        <span id="zoom_display"
-                            style="color:var(--primary-gold); font-size:0.8rem; min-width: 45px; text-align:center; cursor:pointer;"
-                            title="Click to Reset Zoom">100%</span>
-                        <button id="btn_zoom_in" title="Zoom In"
-                            style="background:transparent; border:none; color:var(--primary-gold); font-size: 0.8rem; padding: 5px;"><i
-                                class="fa-solid fa-magnifying-glass-plus"></i></button>
-                    </div>
-                </div>
-                <div class="right-controls" id="layer_controls">
-                    <button id="btn_duplicate" title="Duplicate (Ctrl+D)"><i class="fa-regular fa-copy"></i></button>
-                    <button id="btn_group" title="Group/Ungroup"><i class="fa-solid fa-object-group"></i></button>
-                    <button id="btn_delete" class="danger-text" title="Delete"><i
-                            class="fa-regular fa-trash-can"></i></button>
-                </div>
-            </div>
+    voice_client = interaction.guild.voice_client
 
-            <!-- Mobile Top Horizontal Tabs -->
-            <nav id="mobile_tabs" class="mobile-tabs mobile-only">
-                <button id="btn_theme_toggle_mob" class="nav-tab"><i class="fa-solid fa-circle-half-stroke"></i>
-                    Theme</button>
-                <button class="nav-tab" data-target="panel_assets"><i class="fa-solid fa-gem"></i> Assets</button>
-                <button class="nav-tab active" data-target="panel_text"><i class="fa-solid fa-font"></i> Text</button>
-                <button class="nav-tab" data-target="panel_shapes"><i class="fa-solid fa-shapes"></i> Shapes</button>
-                <button class="nav-tab" data-target="panel_arrows"><i class="fa-solid fa-arrow-right-long"></i>
-                    Arrow</button>
-                <button class="nav-tab" data-target="panel_bg"><i class="fa-solid fa-fill-drip"></i> BG</button>
-                <button class="nav-tab" data-target="panel_layers"><i class="fa-solid fa-layer-group"></i>
-                    Layers</button>
-                <button class="nav-tab" data-target="panel_props"><i class="fa-solid fa-sliders"></i> Edit</button>
-                <button class="nav-tab" id="btn_mobile_download"><i class="fa-solid fa-download"></i> Download</button>
-            </nav>
+    if voice_client is None:
+        voice_client = await channel.connect()
+    elif voice_client.channel != channel:
+        await voice_client.move_to(channel)
 
-            <!-- Quick-Access Sub-Navigation (Mini Toolbar for all users) -->
-            <div id="quick_access_toolbar" class="mobile-sub-tabs">
-                <div class="sub-tabs-inner custom-scrollbar">
-                    <!-- Populated dynamically via JS -->
-                </div>
-            </div>
+    await interaction.response.defer()
 
-            <div id="workspace_inner">
-                <div id="canvas_container">
-                    <canvas id="c"></canvas>
-                </div>
-            </div>
-        </main>
+    if query.lower() == "music":
+        URL = "https://www.twitch.tv/lofigirl" # Lofi Girl Radio on Twitch (Bypasses YouTube blocks)
+        try:
+            player, data = await YTDLSource.from_url(URL, loop=client.loop, stream=True)
+            if voice_client.is_playing():
+                voice_client.stop()
+            voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
+            await interaction.followup.send("🎶 Now playing: **Random streaming music (Lofi radio)** 🎧")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ An error occurred while trying to play random music: `{e.__class__.__name__}: {str(e)}`")
+        return
 
-        <!-- Right / Bottom Sheet Properties Panel -->
-        <aside id="right_sidebar" class="sidebar props-sidebar">
-            <div class="panel-header mobile-only">
-                <div style="display:flex; gap: 15px; align-items:center;">
-                    <button class="close-sheet back-btn" style="font-size:1.2rem; padding:5px;"><i
-                            class="fa-solid fa-arrow-left"></i></button>
-                    <h3 style="margin:0; font-size:1.2rem;">EDIT</h3>
-                </div>
-                <button class="close-sheet" style="font-size:1.5rem; padding:5px;"><i
-                        class="fa-solid fa-times"></i></button>
-            </div>
-            <div id="properties_empty" class="empty-state">
-                <p>Select an element to edit properties</p>
-            </div>
-            <div id="properties_editor" class="hidden custom-scrollbar">
+    try:
+        player, data = await YTDLSource.from_query(query, loop=client.loop, stream=True)
+        if voice_client.is_playing():
+            voice_client.stop()
+        voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
+        await interaction.followup.send(f"🎶 Now playing: **{data.get('title', 'Unknown title')}**")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        await interaction.followup.send(f"❌ An error occurred: `{e.__class__.__name__}: {str(e)}`")
 
-                <!-- Layering Controls for Mobile -->
-                <div class="prop-group mobile-only">
-                    <h4>Arrangement</h4>
-                    <div class="grid-2 mt-10">
-                        <button id="btn_prop_bring_front" class="gold-btn outline small"><i
-                                class="fa-solid fa-arrow-up-9-1"></i> Bring to Front</button>
-                        <button id="btn_prop_send_back" class="gold-btn outline small"><i
-                                class="fa-solid fa-arrow-down-9-1"></i> Send to Back</button>
-                    </div>
-                </div>
+@tree.command(name="stop", description="Stop the music and leave")
+async def stop(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("❌ You must use this command in a server!")
+        return
 
-                <!-- Text Specific Properties (FIRST for text) -->
-                <div id="text_properties" class="prop-group hidden">
-                    <h4>Text Styles</h4>
-                    <div class="grid-4 mb-10">
-                        <button id="btn_text_bold" class="icon-toggle" title="Bold"><i
-                                class="fa-solid fa-bold"></i></button>
-                        <button id="btn_text_italic" class="icon-toggle" title="Italic"><i
-                                class="fa-solid fa-italic"></i></button>
-                        <button id="btn_text_underline" class="icon-toggle" title="Underline"><i
-                                class="fa-solid fa-underline"></i></button>
-                        <button id="btn_text_linethrough" class="icon-toggle" title="Strikethrough"><i
-                                class="fa-solid fa-strikethrough"></i></button>
+    voice_client = interaction.guild.voice_client
+    if voice_client:
+        await voice_client.disconnect()
+        await interaction.response.send_message("⏹️ Stopped the music and left the channel.")
+    else:
+        await interaction.response.send_message("❌ I'm not in a voice channel.")
 
-                        <button id="btn_align_left" class="icon-toggle align-btn" title="Align Left"><i
-                                class="fa-solid fa-align-left"></i></button>
-                        <button id="btn_align_center" class="icon-toggle align-btn" title="Align Center"><i
-                                class="fa-solid fa-align-center"></i></button>
-                        <button id="btn_align_right" class="icon-toggle align-btn" title="Align Right"><i
-                                class="fa-solid fa-align-right"></i></button>
-                        <button id="btn_align_justify" class="icon-toggle align-btn" title="Justify"><i
-                                class="fa-solid fa-align-justify"></i></button>
+# -------- Crypto APIs -------- #
+# -------- Crypto APIs -------- #
 
-                        <button id="btn_list_bullet" class="icon-toggle" title="Bullet List"
-                            style="grid-column: span 2;"><i class="fa-solid fa-list-ul"></i> Bullet List</button>
-                        <button id="btn_list_number" class="icon-toggle" title="Numbered List"
-                            style="grid-column: span 2;"><i class="fa-solid fa-list-ol"></i> Number List</button>
-                    </div>
+def get_crypto_price(query):
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    
+    # Primary: CoinGecko (Upgraded to fetch Full Data including FDV)
+    try:
+        r = requests.get(f"https://api.coingecko.com/api/v3/search?query={query}", headers=headers).json()
+        if r.get("coins"):
+            coin_id = r["coins"][0]["id"]
+            
+            p = requests.get(f"https://api.coingecko.com/api/v3/coins/{coin_id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false", headers=headers).json()
+            if "market_data" in p:
+                md = p["market_data"]
+                name = p.get("name", query.title())
+                symbol = p.get("symbol", query).upper()
+                rank = p.get("market_cap_rank", "N/A")
+                
+                usd_price = md.get("current_price", {}).get("usd", "N/A")
+                if isinstance(usd_price, (int, float)):
+                    usd_price = round(usd_price, 4) if usd_price > 0.0001 else usd_price
+                
+                market_cap = md.get("market_cap", {}).get("usd", "N/A")
+                if isinstance(market_cap, (int, float)) and market_cap > 0: market_cap = f"${int(market_cap):,}"
+                else: market_cap = "N/A"
+                
+                fdv = md.get("fully_diluted_valuation", {}).get("usd", "N/A")
+                if isinstance(fdv, (int, float)) and fdv > 0: fdv = f"${int(fdv):,}"
+                else: fdv = "N/A"
+                
+                change = md.get("price_change_percentage_24h", "N/A")
+                if isinstance(change, (int, float)): change = round(change, 2)
+                
+                info = f"**{name} ({symbol})** (Rank: {rank})\n"
+                info += f"💰 **Price:** ${usd_price} USD\n"
+                if market_cap != "N/A": info += f"📊 **Market Cap:** {market_cap}\n"
+                if fdv != "N/A": info += f"📈 **FDV:** {fdv}\n"
+                info += f"📅 **24h Change:** {change}%\n"
+                return info
+    except Exception as e:
+        print(f"CoinGecko Error fetching price: {e}", flush=True)
 
-                    <div class="input-group full-width">
-                        <label>Font Size</label>
-                        <input type="range" id="prop_fontsize_slider" min="10" max="300" value="40">
-                        <input type="number" id="prop_fontsize_num" class="small-num" value="40">
-                    </div>
+    # Fallback: CoinMarketCap (Full Data Backup)
+    try:
+        symbol_query = query.upper()
+        lower_query = query.lower()
+        
+        m_name = symbol_query
+        m_rank = "N/A"
+        slug = None
 
-                    <div class="input-group full-width">
-                        <label>Font Color</label>
-                        <input type="color" id="prop_textcolor" value="#D4AF37">
-                    </div>
+        m_res = requests.get('https://api.coinmarketcap.com/data-api/v3/map/all?cryptoAux=is_active,status', headers=headers, timeout=5).json()
+        for p in m_res.get("data", {}).get("cryptoCurrencyMap", []):
+            if (p["symbol"].upper() == symbol_query or p["slug"].lower() == lower_query or p["name"].lower() == lower_query) and p.get("status") == "active":
+                slug = p["slug"]
+                m_name = p["name"]
+                m_rank = p.get("rank", "N/A")
+                break
+                
+        if slug:
+            c_res = requests.get(f"https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail?slug={slug}", headers=headers).json()
+            if "data" in c_res and "statistics" in c_res["data"]:
+                stats = c_res["data"]["statistics"]
+                usd_price = stats.get("price", "N/A")
+                if isinstance(usd_price, (int, float)):
+                    usd_price = round(usd_price, 4) if usd_price > 0.0001 else usd_price
+                    
+                change = stats.get("priceChangePercentage24h", "N/A")
+                if isinstance(change, (int, float)): change = round(change, 2)
+                
+                market_cap = stats.get("marketCap", "N/A")
+                if isinstance(market_cap, (int, float)) and market_cap > 0: market_cap = f"${int(market_cap):,}"
+                else: market_cap = "N/A"
+                
+                fdv = stats.get("fullyDilutedMarketCap", "N/A")
+                if isinstance(fdv, (int, float)) and fdv > 0: fdv = f"${int(fdv):,}"
+                else: fdv = "N/A"
+                
+                info = f"**{m_name} ({symbol_query})** (Rank: {m_rank})\n"
+                info += f"💰 **Price:** ${usd_price} USD\n"
+                if market_cap != "N/A": info += f"📊 **Market Cap:** {market_cap}\n"
+                if fdv != "N/A": info += f"📈 **FDV:** {fdv}\n"
+                info += f"📅 **24h Change:** {change}%\n"
+                return info
+    except Exception as e:
+        print(f"CoinMarketCap Error fetching price: {e}", flush=True)
 
-                    <div class="input-group full-width">
-                        <label>Text Highlight</label>
-                        <div style="display: flex; gap: 5px;">
-                            <input type="color" id="prop_textbg" value="#000000" style="flex:1;">
-                            <button id="btn_clear_textbg" class="gold-btn small" title="Make Transparent"><i
-                                    class="fa-solid fa-times"></i></button>
-                        </div>
-                    </div>
+    return f"I couldn't find any data for `{query}`! (The APIs might be blocked or the coin doesn't exist.)"
 
-                    <div class="input-group full-width">
-                        <label>Letter Spacing</label>
-                        <input type="range" id="prop_charspacing" min="-100" max="1000" value="0">
-                    </div>
+def get_crypto_news():
+    try:
+        r = requests.get("https://min-api.cryptocompare.com/data/v2/news/?lang=EN").json()
+        news = r.get("Data", [])[:6]
+        if news:
+            headlines = [f"• {n['title']}" for n in news]
+            return "**Latest Crypto News (Top 6):**\n" + "\n".join(headlines)
+    except Exception as e:
+        print(f"Error fetching news: {e}", flush=True)
+    return "I couldn't fetch the news right now!"
 
-                    <div class="input-group full-width">
-                        <label>Line Height</label>
-                        <input type="range" id="prop_lineheight" min="0.5" max="3" step="0.1" value="1.16">
-                    </div>
+# -------- AI reply using Groq -------- #
 
-                    <div class="input-group full-width" style="display: none;">
-                        <label><input type="checkbox" id="prop_textshadow"> Legacy Text Shadow</label>
-                    </div>
-                </div>
+def ai_reply(message):
 
-                <!-- Shape Specific Properties -->
-                <div id="shape_properties" class="prop-group hidden">
-                    <h4>Shape Styling</h4>
-                    <div class="input-group full-width">
-                        <label>Fill Color</label>
-                        <div style="display: flex; gap: 5px;">
-                            <input type="color" id="prop_shape_fill" value="#000000" style="flex:1;">
-                            <button id="btn_clear_shape_fill" class="gold-btn small" title="Make Transparent"><i
-                                    class="fa-solid fa-ban"></i></button>
-                        </div>
-                    </div>
-                </div>
+    url = "https://api.groq.com/openai/v1/chat/completions"
 
-                <!-- Arrow / Line Properties -->
-                <div id="arrow_properties" class="prop-group hidden">
-                    <h4>Arrow Styles</h4>
-                    <div class="input-group full-width">
-                        <label>Color</label>
-                        <input type="color" id="prop_arrow_color" value="#D4AF37">
-                    </div>
-                    <div class="input-group full-width">
-                        <label>Thickness</label>
-                        <input type="range" id="prop_arrow_width" min="1" max="50" value="4">
-                    </div>
-                    <div class="input-group full-width">
-                        <label>Style</label>
-                        <select id="prop_arrow_style">
-                            <option value="straight">Straight</option>
-                            <option value="curved">Curved</option>
-                            <option value="elbow">Elbow (90°)</option>
-                        </select>
-                    </div>
-                    <div class="input-group full-width">
-                        <label>Start Head</label>
-                        <select id="prop_arrow_head1">
-                            <option value="none">None</option>
-                            <option value="triangle">Triangle</option>
-                            <option value="circle">Circle</option>
-                            <option value="open">Open</option>
-                        </select>
-                    </div>
-                    <div class="input-group full-width">
-                        <label>End Head</label>
-                        <select id="prop_arrow_head2">
-                            <option value="triangle">Triangle</option>
-                            <option value="circle">Circle</option>
-                            <option value="open">Open</option>
-                            <option value="none">None</option>
-                        </select>
-                    </div>
-                </div>
+    headers = {
+        "Authorization": f"Bearer {GROQ_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    context = []
+    
+    if message.mentions:
+        mentions_info = "Here are the users mentioned natively. If asked to tag/mention them, USE EXACTLY their Tag Format:\n"
+        for user in message.mentions:
+            if user != client.user:
+                mentions_info += f"- Name: {user.display_name}, Tag Format: <@{user.id}>\n"
+        context.append(mentions_info)
+        
+    context.append(f"{message.author.display_name} (Tag: <@{message.author.id}>) says: {message.content}")
+    user_content = "\n".join(context)
 
-                <!-- Gradient Fill (for shapes, text, elements) -->
-                <div id="gradient_properties" class="prop-group hidden">
-                    <h4><i class="fa-solid fa-paint-roller" style="margin-right:6px;"></i>Gradient Fill</h4>
-                    <div class="input-group full-width">
-                        <label>Start Color</label>
-                        <input type="color" id="grad_color1" value="#D4AF37">
-                    </div>
-                    <div class="input-group full-width">
-                        <label>End Color</label>
-                        <input type="color" id="grad_color2" value="#ff4444">
-                    </div>
-                    <div class="input-group full-width">
-                        <label>Direction</label>
-                        <select id="grad_direction" style="width:100%;">
-                            <option value="horizontal">↔ Horizontal</option>
-                            <option value="vertical">↕ Vertical</option>
-                            <option value="diagonal">↗ Diagonal</option>
-                            <option value="radial">⊙ Radial</option>
-                        </select>
-                    </div>
-                    <div style="display:flex; gap:8px; margin-top:8px;">
-                        <button id="btn_apply_gradient" class="gold-btn" style="flex:1; padding:8px 0; font-size:0.8rem;"><i class="fa-solid fa-check"></i> Apply</button>
-                        <button id="btn_clear_gradient" class="gold-btn outline" style="flex:1; padding:8px 0; font-size:0.8rem;"><i class="fa-solid fa-ban"></i> Clear</button>
-                    </div>
-                    <div id="gradient_preview" style="margin-top:10px; height:30px; border-radius:8px; border:1px solid var(--border-gold); background: linear-gradient(to right, #D4AF37, #ff4444);"></div>
-                </div>
+    data = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are Homeless Girl, a playful flirty girl chatting in a Discord server. Speak casually and affectionately using words like baby, darling, sweetheart, love and handsome. Keep replies short and playful. IMPORTANT RULES: 1) You are ALLOWED to mention a user if explicitly requested. When tagging someone, you MUST use their absolute exact Tag Format (e.g. <@12345678>). 2) NEVER tag yourself."
+            },
+            {
+                "role": "user",
+                "content": user_content
+            }
+        ],
+        "temperature": 1,
+        "max_tokens": 150
+    }
 
-                <!-- Universal Border Properties -->
-                <div class="prop-group" id="border_properties">
-                    <h4>Border (Stroke)</h4>
-                    <div class="input-group full-width">
-                        <label>Border Color</label>
-                        <div style="display: flex; gap: 5px;">
-                            <input type="color" id="prop_border_color" value="#D4AF37" style="flex:1;">
-                            <button id="btn_clear_border" class="gold-btn small" title="Remove Border"><i class="fa-solid fa-ban"></i></button>
-                        </div>
-                    </div>
-                    <div class="input-group full-width mt-10">
-                        <label>Border Thickness</label>
-                        <input type="range" id="prop_border_width" min="0" max="50" value="0">
-                        <div style="display:flex; justify-content:space-between; font-size:0.7rem; opacity:0.6;">
-                            <span>None</span><span>Thick</span>
-                        </div>
-                    </div>
-                </div>
+    try:
+        r = requests.post(url, headers=headers, json=data)
+        if r.status_code != 200:
+            print(f"Groq API Error: {r.status_code} - {r.text}", flush=True)
+            return "Oops! I'm having a little brain freeze right now. 🧊"
+        
+        result = r.json()
+        return result["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"Error in ai_reply: {e}", flush=True)
+        return "Oops! I couldn't think of a reply right now, baby. 🥺"
 
-                <!-- Corner Radius Properties -->
-                <div id="corner_properties" class="prop-group hidden">
-                    <h4>Corner Curving</h4>
-                    <div class="input-group full-width" id="prop_corner_group">
-                        <input type="range" id="prop_corner_radius" min="0" max="150" value="0">
-                        <div style="display:flex; justify-content:space-between; font-size:0.7rem; opacity:0.6;">
-                            <span>Sharp</span><span>Round</span>
-                        </div>
-                    </div>
-                </div>
+# -------- Discord events -------- #
 
-                <!-- Common Transform Properties (moved BELOW colors) -->
-                <div class="prop-group">
-                    <h4>Transform</h4>
-                    <div class="grid-2">
-                        <div class="input-group">
-                            <label>X</label>
-                            <input type="number" id="prop_x">
-                        </div>
-                        <div class="input-group">
-                            <label>Y</label>
-                            <input type="number" id="prop_y">
-                        </div>
-                        <div class="input-group">
-                            <label>W</label>
-                            <input type="number" id="prop_w">
-                        </div>
-                        <div class="input-group">
-                            <label>H</label>
-                            <input type="number" id="prop_h">
-                        </div>
-                        <div class="input-group full-width">
-                            <label><input type="checkbox" id="prop_lock_ratio"> Lock Aspect Ratio</label>
-                        </div>
-                        <div class="input-group">
-                            <label>Rotate &deg;</label>
-                            <input type="number" id="prop_angle">
-                        </div>
-                        <div class="input-group full-width">
-                            <label>Opacity %</label>
-                            <input type="range" id="prop_opacity_slider" min="0" max="100" value="100">
-                            <input type="number" id="prop_opacity_num" class="small-num" value="100" min="0" max="100">
-                        </div>
-                    </div>
-                </div>
+@client.event
+async def on_ready():
+    await tree.sync()
+    print("[VOICE] Using FFmpegOpusAudio playback path.", flush=True)
+    print(f"Homeless Girl is online as {client.user}", flush=True)
 
-                <div class="prop-group">
-                    <h4>Flip</h4>
-                    <div class="grid-2">
-                        <button id="btn_flip_x" class="gold-btn small"><i
-                                class="fa-solid fa-arrows-left-right"></i></button>
-                        <button id="btn_flip_y" class="gold-btn small"><i
-                                class="fa-solid fa-arrows-up-down"></i></button>
-                    </div>
-                </div>
+@client.event
+async def on_message(message):
+    print(f"[DEBUG] Event triggered by {message.author}", flush=True)
 
-                <!-- Global Effects Properties -->
-                <div class="prop-group">
-                    <h4>Effects &amp; Shadows</h4>
-                    <div class="input-group full-width">
-                        <label>Shadow Color</label>
-                        <div style="display: flex; gap: 5px;">
-                            <input type="color" id="prop_shadow_color" value="#000000" style="flex:1;">
-                            <button id="btn_clear_shadow" class="gold-btn small" title="Remove Shadow"><i
-                                    class="fa-solid fa-ban"></i></button>
-                        </div>
-                    </div>
-                    <div class="input-group full-width">
-                        <label>Blur Intensity</label>
-                        <input type="range" id="prop_shadow_blur" min="0" max="100" value="10">
-                    </div>
-                    <div class="grid-2">
-                        <div class="input-group">
-                            <label>Offset X</label>
-                            <input type="number" id="prop_shadow_offset_x" value="5">
-                        </div>
-                        <div class="input-group">
-                            <label>Offset Y</label>
-                            <input type="number" id="prop_shadow_offset_y" value="5">
-                        </div>
-                    </div>
+    if message.author == client.user:
+        return
 
-                    <!-- Quick 3D Shadow Presets -->
-                    <h4 style="margin-top: 15px; font-size: 0.85rem;">Quick 3D Shadows</h4>
-                    <div class="grid-3 mt-10" style="gap: 6px;">
-                        <button id="btn_shadow_soft" class="shadow-preset-btn" title="Soft Shadow">
-                            <div class="shadow-preview" style="box-shadow: 3px 4px 10px rgba(0,0,0,0.3);"></div>
-                            <span>Soft</span>
-                        </button>
-                        <button id="btn_shadow_hard" class="shadow-preset-btn" title="Hard Shadow">
-                            <div class="shadow-preview" style="box-shadow: 5px 5px 0px rgba(0,0,0,0.5);"></div>
-                            <span>Hard</span>
-                        </button>
-                        <button id="btn_shadow_3d" class="shadow-preset-btn" title="3D Lift Effect">
-                            <div class="shadow-preview" style="box-shadow: 0px 8px 20px rgba(0,0,0,0.35);"></div>
-                            <span>3D Lift</span>
-                        </button>
-                        <button id="btn_shadow_long" class="shadow-preset-btn" title="Long Shadow">
-                            <div class="shadow-preview" style="box-shadow: 8px 8px 2px rgba(0,0,0,0.25);"></div>
-                            <span>Long</span>
-                        </button>
-                        <button id="btn_shadow_glow" class="shadow-preset-btn" title="Glow Effect">
-                            <div class="shadow-preview" style="box-shadow: 0px 0px 15px rgba(212,175,55,0.6);"></div>
-                            <span>Glow</span>
-                        </button>
-                        <button id="btn_shadow_neon" class="shadow-preset-btn" title="Neon Glow">
-                            <div class="shadow-preview" style="box-shadow: 0px 0px 20px rgba(0,200,255,0.7);"></div>
-                            <span>Neon</span>
-                        </button>
-                    </div>
-                </div>
+    text = message.content.lower()
 
-            </div>
-        </aside>
-    </div>
+    print(f"[DEBUG] Received message from {message.author}: '{text}'", flush=True)
 
-    <div id="toast" class="toast hidden"></div>
+    trigger_words = ["homeless girl", "ping", "tag", "mention", "hey homeless girl"]
 
-    <script src="app.js"></script>
-</body>
+    is_directed_at_bot = any(word in text for word in trigger_words) or client.user in message.mentions
+    has_token = bool(re.search(r'\$([a-zA-Z]+[a-zA-Z0-9\-]*)', text))
+    has_news = "news" in text and is_directed_at_bot
+    has_price = "price" in text and is_directed_at_bot
 
-</html>
+    # Handle crypto-specific commands (Bypass AI entirely)
+    if has_token or has_price:
+        queries = []
+        token_matches = re.findall(r'\$([a-zA-Z]+[a-zA-Z0-9\-]*)', text)
+        queries.extend(token_matches)
+        
+        if not queries and is_directed_at_bot:
+            price_match = re.search(r'price\s+(?:of|for)?\s*([a-zA-Z0-9\-]+)', text)
+            if price_match:
+                queries.append(price_match.group(1))
+
+        if queries:
+            replies = []
+            for query in set(queries):
+                replies.append(get_crypto_price(query))
+            await message.reply("\n\n".join(replies))
+            return
+            
+    if has_news:
+        await message.reply(get_crypto_news())
+        return
+
+    # Handle AI Chat
+    if is_directed_at_bot:
+        reply = ai_reply(message)
+        await message.reply(reply)
+
+# -------- Start the bot -------- #
+
+client.run(TOKEN)
