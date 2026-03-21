@@ -82,10 +82,16 @@ def force_load_opus():
             discord.opus.load_opus(os.path.join(bd, 'bin', f"libopus-0.{'x64' if struct.calcsize('P')*8 > 32 else 'x86'}.dll"))
         except: pass
     else:
-        try: discord.opus.load_opus('libopus.so.0')
-        except: 
-            import ctypes.util
-            try: discord.opus.load_opus(ctypes.util.find_library('opus'))
+        paths = ['libopus.so.0', '/usr/lib/x86_64-linux-gnu/libopus.so.0', '/usr/lib/aarch64-linux-gnu/libopus.so.0', '/usr/lib/libopus.so.0', '/usr/lib/x86_64-linux-gnu/libopus.so']
+        for p in paths:
+            try:
+                discord.opus.load_opus(p)
+                if discord.opus.is_loaded(): break
+            except: pass
+        if not discord.opus.is_loaded():
+            try:
+                import ctypes.util
+                discord.opus.load_opus(ctypes.util.find_library('opus'))
             except: pass
 
 # -------- Slash Commands for Music -------- #
@@ -363,3 +369,4 @@ async def on_message(message):
 # -------- Start the bot -------- #
 
 client.run(TOKEN)
+
