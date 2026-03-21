@@ -38,12 +38,7 @@ ffmpeg_options = {
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
-class YTDLSource(discord.PCMVolumeTransformer):
-    def __init__(self, source, *, data, volume=0.5):
-        super().__init__(source, volume)
-        self.data = data
-        self.title = data.get('title')
-        self.url = data.get('url')
+class YTDLSource:
 
     @classmethod
     async def from_query(cls, query, *, loop=None, stream=False):
@@ -56,7 +51,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         import imageio_ffmpeg
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        return cls(discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options), data=data)
+        source = discord.FFmpegOpusAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        return source, data
 
     @classmethod
     async def from_url(cls, url, *, loop=None, stream=True):
@@ -69,7 +65,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         import imageio_ffmpeg
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        return cls(discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options), data=data)
+        source = discord.FFmpegOpusAudio(filename, executable=ffmpeg_exe, **ffmpeg_options)
+        return source, data
 
 # -------- Opus / Voice Helpers -------- #
 
@@ -77,9 +74,8 @@ def ensure_opus_loaded() -> bool:
     """
     Ensure discord.py's Opus bindings are loaded.
 
-    On Windows, searching Linux/Nix paths will never work, so we instead:
-    1) try discord's default loader
-    2) if still not loaded, try to load a DLL shipped by `opuslib`
+    On Windows, load discord.py's bundled DLL.
+    On Linux/macOS, use system libopus via ctypes discovery.
     """
     import discord.opus
     import discord as discord_pkg
@@ -99,14 +95,34 @@ def ensure_opus_loaded() -> bool:
         except Exception:
             pass
     else:
-        # Linux/macOS: rely on ctypes discovery (libopus needs to be installed on the system).
+        # Linux/macOS: try common sonames first, then ctypes discovery.
         try:
             import ctypes.util
-            name = ctypes.util.find_library("opus")
-            if name:
-                discord.opus.load_opus(name)
+            candidates = [
+                "libopus.so.0",
+                "libopus.so.1",
+                "libopus.so",
+                "/usr/lib/x86_64-linux-gnu/libopus.so.0",
+                "/usr/lib/libopus.so.0",
+                "opus",
+            ]
+            found = ctypes.util.find_library("opus")
+            if found:
+                candidates.append(found)
+
+            for name in candidates:
+                try:
+                    discord.opus.load_opus(name)
+                    if discord.opus.is_loaded():
+                        print(f"[VOICE] Opus loaded with: {name}", flush=True)
+                        break
+                except Exception:
+                    continue
         except Exception:
             pass
+
+    if not discord.opus.is_loaded():
+        print("[VOICE] Opus failed to load. Ensure system package libopus0 is installed.", flush=True)
 
     return discord.opus.is_loaded()
 
@@ -114,13 +130,6 @@ def ensure_opus_loaded() -> bool:
 
 @tree.command(name="play", description="Play a song or use 'music' for random music")
 async def play(interaction: discord.Interaction, query: str):
-    if not ensure_opus_loaded():
-        await interaction.response.send_message(
-            "❌ Opus is not loaded. Install `opuslib` and restart the bot, then try again.",
-            ephemeral=True,
-        )
-        return
-
     if not interaction.guild:
         await interaction.response.send_message("❌ You must use this command in a server!")
         return
@@ -147,7 +156,7 @@ async def play(interaction: discord.Interaction, query: str):
     if query.lower() == "music":
         URL = "https://www.twitch.tv/lofigirl" # Lofi Girl Radio on Twitch (Bypasses YouTube blocks)
         try:
-            player = await YTDLSource.from_url(URL, loop=client.loop, stream=True)
+            player, data = await YTDLSource.from_url(URL, loop=client.loop, stream=True)
             if voice_client.is_playing():
                 voice_client.stop()
             voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
@@ -159,11 +168,11 @@ async def play(interaction: discord.Interaction, query: str):
         return
 
     try:
-        player = await YTDLSource.from_query(query, loop=client.loop, stream=True)
+        player, data = await YTDLSource.from_query(query, loop=client.loop, stream=True)
         if voice_client.is_playing():
             voice_client.stop()
         voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
-        await interaction.followup.send(f"🎶 Now playing: **{player.title}**")
+        await interaction.followup.send(f"🎶 Now playing: **{data.get('title', 'Unknown title')}**")
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -339,6 +348,7 @@ def ai_reply(message):
 @client.event
 async def on_ready():
     await tree.sync()
+    print("[VOICE] Using FFmpegOpusAudio playback path.", flush=True)
     print(f"Homeless Girl is online as {client.user}", flush=True)
 
 @client.event
