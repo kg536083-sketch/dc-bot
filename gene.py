@@ -99,7 +99,7 @@ async def play(interaction: discord.Interaction, query: str):
     await interaction.response.defer()
 
     if query.lower() == "music":
-        URL = "https://www.youtube.com/watch?v=jfKfPfyJRdk" # Lofi Girl Radio (24/7)
+        URL = "https://www.twitch.tv/lofigirl" # Lofi Girl Radio on Twitch (Bypasses YouTube blocks)
         try:
             player = await YTDLSource.from_url(URL, loop=client.loop, stream=True)
             if voice_client.is_playing():
