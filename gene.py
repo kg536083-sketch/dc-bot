@@ -107,7 +107,9 @@ async def play(interaction: discord.Interaction, query: str):
             voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
             await interaction.followup.send("🎶 Now playing: **Random streaming music (Lofi radio)** 🎧")
         except Exception as e:
-            await interaction.followup.send(f"❌ An error occurred while trying to play random music: {e}")
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ An error occurred while trying to play random music: `{e.__class__.__name__}: {str(e)}`")
         return
 
     try:
@@ -117,7 +119,9 @@ async def play(interaction: discord.Interaction, query: str):
         voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
         await interaction.followup.send(f"🎶 Now playing: **{player.title}**")
     except Exception as e:
-        await interaction.followup.send(f"❌ An error occurred: {e}")
+        import traceback
+        traceback.print_exc()
+        await interaction.followup.send(f"❌ An error occurred: `{e.__class__.__name__}: {str(e)}`")
 
 @tree.command(name="stop", description="Stop the music and leave")
 async def stop(interaction: discord.Interaction):
