@@ -54,7 +54,9 @@ class YTDLSource(discord.PCMVolumeTransformer):
             data = data['entries'][0]
 
         filename = data['url'] if stream else ytdl.prepare_filename(data)
-        return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        return cls(discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options), data=data)
 
     @classmethod
     async def from_url(cls, url, *, loop=None, stream=True):
@@ -65,7 +67,9 @@ class YTDLSource(discord.PCMVolumeTransformer):
             data = data['entries'][0]
 
         filename = data['url'] if stream else ytdl.prepare_filename(data)
-        return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        return cls(discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options), data=data)
 
 # -------- Slash Commands for Music -------- #
 
