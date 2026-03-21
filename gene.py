@@ -1,7 +1,11 @@
 import discord
+from discord import app_commands
 import requests
 import os
 import re
+import asyncio
+import yt_dlp
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 
@@ -9,6 +13,120 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
+
+# -------- Music Source Setup -------- #
+
+ytdl_format_options = {
+    'format': 'bestaudio/best',
+    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'noplaylist': True,
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'logtostderr': False,
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'auto',
+    'source_address': '0.0.0.0'
+}
+
+ffmpeg_options = {
+    'options': '-vn',
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+}
+
+ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
+
+class YTDLSource(discord.PCMVolumeTransformer):
+    def __init__(self, source, *, data, volume=0.5):
+        super().__init__(source, volume)
+        self.data = data
+        self.title = data.get('title')
+        self.url = data.get('url')
+
+    @classmethod
+    async def from_query(cls, query, *, loop=None, stream=False):
+        loop = loop or asyncio.get_event_loop()
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch:{query}", download=not stream))
+
+        if 'entries' in data:
+            data = data['entries'][0]
+
+        filename = data['url'] if stream else ytdl.prepare_filename(data)
+        return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
+
+    @classmethod
+    async def from_url(cls, url, *, loop=None, stream=True):
+        loop = loop or asyncio.get_event_loop()
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
+
+        if 'entries' in data:
+            data = data['entries'][0]
+
+        filename = data['url'] if stream else ytdl.prepare_filename(data)
+        return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
+
+# -------- Slash Commands for Music -------- #
+
+@tree.command(name="play", description="Play a song or use 'music' for random music")
+async def play(interaction: discord.Interaction, query: str):
+    if not interaction.guild:
+        await interaction.response.send_message("❌ You must use this command in a server!")
+        return
+
+    TARGET_CHANNEL_ID = 1467485300791181333
+    channel = client.get_channel(TARGET_CHANNEL_ID)
+    
+    if not channel:
+        try:
+            channel = await client.fetch_channel(TARGET_CHANNEL_ID)
+        except:
+            await interaction.response.send_message("❌ Couldn't find the target streaming channel!")
+            return
+
+    voice_client = interaction.guild.voice_client
+
+    if voice_client is None:
+        voice_client = await channel.connect()
+    elif voice_client.channel != channel:
+        await voice_client.move_to(channel)
+
+    await interaction.response.defer()
+
+    if query.lower() == "music":
+        URL = "https://www.youtube.com/watch?v=jfKfPfyJRdk" # Lofi Girl Radio (24/7)
+        try:
+            player = await YTDLSource.from_url(URL, loop=client.loop, stream=True)
+            if voice_client.is_playing():
+                voice_client.stop()
+            voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
+            await interaction.followup.send("🎶 Now playing: **Random streaming music (Lofi radio)** 🎧")
+        except Exception as e:
+            await interaction.followup.send(f"❌ An error occurred while trying to play random music: {e}")
+        return
+
+    try:
+        player = await YTDLSource.from_query(query, loop=client.loop, stream=True)
+        if voice_client.is_playing():
+            voice_client.stop()
+        voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
+        await interaction.followup.send(f"🎶 Now playing: **{player.title}**")
+    except Exception as e:
+        await interaction.followup.send(f"❌ An error occurred: {e}")
+
+@tree.command(name="stop", description="Stop the music and leave")
+async def stop(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("❌ You must use this command in a server!")
+        return
+
+    voice_client = interaction.guild.voice_client
+    if voice_client:
+        await voice_client.disconnect()
+        await interaction.response.send_message("⏹️ Stopped the music and left the channel.")
+    else:
+        await interaction.response.send_message("❌ I'm not in a voice channel.")
 
 # -------- Crypto APIs -------- #
 # -------- Crypto APIs -------- #
@@ -166,6 +284,7 @@ def ai_reply(message):
 
 @client.event
 async def on_ready():
+    await tree.sync()
     print(f"Homeless Girl is online as {client.user}", flush=True)
 
 @client.event
