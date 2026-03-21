@@ -1,5 +1,4 @@
-providers = ["python"]
+providers = ["node"]
 
 [phases.setup]
-aptPkgs = ["...", "libopus0", "ffmpeg", "libffi-dev"]
-nixPkgs = ["...", "libopus", "ffmpeg"]
+nixPkgs = ["nodejs-20_x"]
