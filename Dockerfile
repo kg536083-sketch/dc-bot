@@ -1,14 +1,13 @@
-FROM python:3.11-slim
-
-RUN apt-get update && \
-    apt-get install -y ffmpeg libopus0 libopus-dev && \
-    rm -rf /var/lib/apt/lists/*
+FROM node:20-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies
+COPY package*.json ./
+RUN npm install
 
+# Copy source code
 COPY . .
 
-CMD ["python", "gene.py"]
+# Run the bot
+CMD ["npm", "start"]
