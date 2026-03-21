@@ -71,20 +71,55 @@ class YTDLSource(discord.PCMVolumeTransformer):
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         return cls(discord.FFmpegPCMAudio(filename, executable=ffmpeg_exe, **ffmpeg_options), data=data)
 
+# -------- Opus / Voice Helpers -------- #
+
+def ensure_opus_loaded() -> bool:
+    """
+    Ensure discord.py's Opus bindings are loaded.
+
+    On Windows, searching Linux/Nix paths will never work, so we instead:
+    1) try discord's default loader
+    2) if still not loaded, try to load a DLL shipped by `opuslib`
+    """
+    import discord.opus
+    import discord as discord_pkg
+    import struct
+
+    if discord.opus.is_loaded():
+        return True
+
+    # Windows: discord.py bundles the opus DLLs inside the discord package.
+    if os.name == "nt":
+        try:
+            basedir = os.path.dirname(os.path.abspath(discord_pkg.__file__))
+            bitness = struct.calcsize("P") * 8
+            target = "x64" if bitness > 32 else "x86"
+            dll_path = os.path.join(basedir, "bin", f"libopus-0.{target}.dll")
+            discord.opus.load_opus(dll_path)
+        except Exception:
+            pass
+    else:
+        # Linux/macOS: rely on ctypes discovery (libopus needs to be installed on the system).
+        try:
+            import ctypes.util
+            name = ctypes.util.find_library("opus")
+            if name:
+                discord.opus.load_opus(name)
+        except Exception:
+            pass
+
+    return discord.opus.is_loaded()
+
 # -------- Slash Commands for Music -------- #
 
 @tree.command(name="play", description="Play a song or use 'music' for random music")
 async def play(interaction: discord.Interaction, query: str):
-    import discord.opus
-    if not discord.opus.is_loaded():
-        fallbacks = ['libopus.so.0', 'libopus.so', '/usr/lib/x86_64-linux-gnu/libopus.so.0', '/usr/lib/aarch64-linux-gnu/libopus.so.0']
-        for lib in fallbacks:
-            try:
-                discord.opus.load_opus(lib)
-                if discord.opus.is_loaded():
-                    break
-            except Exception:
-                pass
+    if not ensure_opus_loaded():
+        await interaction.response.send_message(
+            "❌ Opus is not loaded. Install `opuslib` and restart the bot, then try again.",
+            ephemeral=True,
+        )
+        return
 
     if not interaction.guild:
         await interaction.response.send_message("❌ You must use this command in a server!")
