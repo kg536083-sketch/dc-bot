@@ -1,3 +1,5 @@
+providers = ["python"]
+
 [phases.setup]
-aptPkgs = ["libopus0", "ffmpeg", "libffi-dev"]
-nixPkgs = ["libopus", "ffmpeg"]
+aptPkgs = ["...", "libopus0", "ffmpeg", "libffi-dev"]
+nixPkgs = ["...", "libopus", "ffmpeg"]
